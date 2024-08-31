@@ -1,0 +1,431 @@
+Da bi se implementirao kompletan PHP projekat za sistem upravljanja zadacima sa autentifikacijom korisnika, naprednom pretragom i AJAX-om, treba pratiti sledeće korake. 
+Ovi koraci obuhvataju pripremu okruženja, kreiranje baze podataka, implementaciju PHP skripti, i pokretanje aplikacije.
+
+ Korak 1: Priprema Okruženja
+
+1. Instalirati PHP i MySQL: Instalirati PHP i MySQL. Može se koristiti WAMP, XAMPP, ili MAMP, koji su paketi koji uključuju sve potrebno.
+
+2. Kreirati Bazu Podataka:
+   - Pokrenuti MySQL server.
+   - Kreirati novu bazu podataka. Na primer, koristiti `task_manager` kao naziv baze podataka.
+
+```sql
+CREATE DATABASE task_manager;
+USE task_manager;
+```
+
+3. Kreirati Tabele:
+   - Izvršiti SQL skriptu za kreiranje tabela `users` i `tasks`.
+
+```sql
+CREATE TABLE users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE tasks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    status ENUM('pending', 'completed') DEFAULT 'pending',
+    user_id INT,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+```
+
+ Korak 2: Implementacija PHP Skripti
+
+1. Kreirati Datoteke i Folder Structure:
+   - U  projektnom folderu, kreirati sledeće datoteke i foldere:
+     ```
+     /task_manager
+       |-- db.php
+       |-- register.php
+       |-- login.php
+       |-- logout.php
+       |-- create.php
+       |-- edit.php
+       |-- delete.php
+       |-- index.php
+       |-- search.php
+       |-- search.js
+     ```
+
+2. Implementirati `db.php`:
+
+```php
+<?php
+$host = 'localhost';
+$db = 'task_manager';
+$user = 'root';
+$pass = '';
+
+// Kreirati PDO instancu
+try {
+    $pdo = new PDO("mysql:host=$host;dbname=$db;charset=utf8", $user, $pass);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+} catch (PDOException $e) {
+    echo 'Konekcija nije uspela: ' . $e->getMessage();
+}
+?>
+```
+
+3. Implementirati `register.php`:
+
+```php
+<?php
+include 'db.php';
+
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $username = $_POST['username'];
+    $password = $_POST['password'];
+    $password_hash = password_hash($password, PASSWORD_BCRYPT);
+
+    $stmt = $pdo->prepare("INSERT INTO users (username, password_hash) VALUES (:username, :password_hash)");
+    $stmt->execute(['username' => $username, 'password_hash' => $password_hash]);
+
+    header('Location: login.php');
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Registracija</title>
+</head>
+<body>
+    <h1>Registrujte se</h1>
+    <form method="post">
+        <label for="username">Korisničko ime:</label>
+        <input type="text" id="username" name="username" required>
+        <br>
+        <label for="password">Lozinka:</label>
+        <input type="password" id="password" name="password" required>
+        <br>
+        <button type="submit">Registruj se</button>
+    </form>
+    <a href="login.php">Već imate nalog? Prijavite se</a>
+</body>
+</html>
+```
+
+4. Implementirati `login.php`:
+
+```php
+<?php
+include 'db.php';
+session_start();
+
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $username = $_POST['username'];
+    $password = $_POST['password'];
+
+    $stmt = $pdo->prepare("SELECT  FROM users WHERE username = :username");
+    $stmt->execute(['username' => $username]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($user && password_verify($password, $user['password_hash'])) {
+        $_SESSION['user_id'] = $user['id'];
+        header('Location: index.php');
+    } else {
+        $error = "Nevažeće korisničko ime ili lozinka.";
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Prijava</title>
+</head>
+<body>
+    <h1>Prijavite se</h1>
+    <form method="post">
+        <label for="username">Korisničko ime:</label>
+        <input type="text" id="username" name="username" required>
+        <br>
+        <label for="password">Lozinka:</label>
+        <input type="password" id="password" name="password" required>
+        <br>
+        <button type="submit">Prijavite se</button>
+    </form>
+    <?php if (isset($error)) echo "<p>$error</p>"; ?>
+    <a href="register.php">Nemate nalog? Registrujte se</a>
+</body>
+</html>
+```
+
+5. Implementirati `logout.php`:
+
+```php
+<?php
+session_start();
+session_unset();
+session_destroy();
+header('Location: login.php');
+?>
+```
+
+6. Implementirati `create.php`:
+
+```php
+<?php
+include 'db.php';
+session_start();
+
+if (!isset($_SESSION['user_id'])) {
+    header('Location: login.php');
+    exit();
+}
+
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $title = $_POST['title'];
+    $description = $_POST['description'];
+    $user_id = $_SESSION['user_id'];
+
+    $stmt = $pdo->prepare("INSERT INTO tasks (title, description, user_id) VALUES (:title, :description, :user_id)");
+    $stmt->execute(['title' => $title, 'description' => $description, 'user_id' => $user_id]);
+
+    header('Location: index.php');
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Dodaj Zadatak</title>
+</head>
+<body>
+    <h1>Dodaj Novi Zadatak</h1>
+    <form method="post">
+        <label for="title">Naslov:</label>
+        <input type="text" id="title" name="title" required>
+        <br>
+        <label for="description">Opis:</label>
+        <textarea id="description" name="description"></textarea>
+        <br>
+        <button type="submit">Dodaj</button>
+    </form>
+    <a href="index.php">Nazad na Listu</a>
+</body>
+</html>
+```
+
+7. Implementirati `edit.php`:
+
+```php
+<?php
+include 'db.php';
+session_start();
+
+if (!isset($_SESSION['user_id'])) {
+    header('Location: login.php');
+    exit();
+}
+
+$id = $_GET['id'] ?? null;
+
+// Proverava da li zadatak pripada trenutnom korisniku
+$stmt = $pdo->prepare("SELECT  FROM tasks WHERE id = :id AND user_id = :user_id");
+$stmt->execute(['id' => $id, 'user_id' => $_SESSION['user_id']]);
+$task = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$task) {
+    echo "Zadatak nije pronađen ili nemate dozvolu za pristup.";
+    exit();
+}
+
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $title = $_POST['title'];
+    $description = $_POST['description'];
+    $status = $_POST['status'];
+
+    $stmt = $pdo->prepare("UPDATE tasks SET title = :title, description = :description, status = :status WHERE id = :id AND user_id = :user_id");
+    $stmt->execute(['title' => $title, 'description' => $description, 'status' => $status, 'id' => $id, 'user_id' => $_SESSION['user_id']]);
+
+    header('Location: index.php');
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Izmeni Zadatak</title>
+</head>
+<body>
+    <h1>Izmeni Zadatak</h1>
+    <form method="post">
+        <label for="title">Naslov:</label>
+        <input type="text" id="title" name="title" value="<?php echo htmlspecialchars($task['title']); ?>" required>
+        <br>
+        <label for="description">Opis:</label>
+        <textarea id="description" name="description"><?php echo htmlspecialchars($task['description']); ?></textarea>
+        <br>
+        <label for="status">Status:</label>
+        <select id="status" name="status">
+            <option value="pending" <?php echo $
+
+task['status'] == 'pending' ? 'selected' : ''; ?>>Na čekanju</option>
+            <option value="completed" <?php echo $task['status'] == 'completed' ? 'selected' : ''; ?>>Završeno</option>
+        </select>
+        <br>
+        <button type="submit">Ažuriraj</button>
+    </form>
+    <a href="index.php">Nazad na Listu</a>
+</body>
+</html>
+```
+
+8. Implementirati `delete.php`:
+
+```php
+<?php
+include 'db.php';
+session_start();
+
+if (!isset($_SESSION['user_id'])) {
+    header('Location: login.php');
+    exit();
+}
+
+$id = $_GET['id'] ?? null;
+
+// Proverava da li zadatak pripada trenutnom korisniku
+$stmt = $pdo->prepare("DELETE FROM tasks WHERE id = :id AND user_id = :user_id");
+$stmt->execute(['id' => $id, 'user_id' => $_SESSION['user_id']]);
+
+header('Location: index.php');
+?>
+```
+
+9. Implementirati `index.php`:
+
+```php
+<?php
+include 'db.php';
+session_start();
+
+if (!isset($_SESSION['user_id'])) {
+    header('Location: login.php');
+    exit();
+}
+
+// Pretraga
+$search = $_GET['search'] ?? '';
+$query = "SELECT  FROM tasks WHERE user_id = :user_id";
+$params = ['user_id' => $_SESSION['user_id']];
+
+if ($search) {
+    $query .= " AND (title LIKE :search OR description LIKE :search)";
+    $params['search'] = "%$search%";
+}
+
+$stmt = $pdo->prepare($query);
+$stmt->execute($params);
+$tasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sistem za Upravljanje Zadatakima</title>
+    <script src="search.js"></script>
+</head>
+<body>
+    <h1>Lista Zadataka</h1>
+    <a href="create.php">Dodaj Novi Zadatak</a>
+    <a href="logout.php">Odjavi se</a>
+    <form id="search-form">
+        <input type="text" id="search-input" placeholder="Pretraži zadatke" value="<?php echo htmlspecialchars($search); ?>">
+        <button type="submit">Pretraži</button>
+    </form>
+    <table border="1">
+        <tr>
+            <th>Naslov</th>
+            <th>Opis</th>
+            <th>Status</th>
+            <th>Akcija</th>
+        </tr>
+        <?php foreach ($tasks as $task): ?>
+        <tr>
+            <td><?php echo htmlspecialchars($task['title']); ?></td>
+            <td><?php echo htmlspecialchars($task['description']); ?></td>
+            <td><?php echo htmlspecialchars($task['status']); ?></td>
+            <td>
+                <a href="edit.php?id=<?php echo $task['id']; ?>">Izmeni</a>
+                <a href="delete.php?id=<?php echo $task['id']; ?>" onclick="return confirm('Da li ste sigurni da želite da obrišete ovaj zadatak?')">Obriši</a>
+            </td>
+        </tr>
+        <?php endforeach; ?>
+    </table>
+</body>
+</html>
+```
+
+10. Implementirati `search.php`:
+
+```php
+<?php
+include 'db.php';
+session_start();
+
+$search = $_GET['search'] ?? '';
+$query = "SELECT  FROM tasks WHERE user_id = :user_id";
+$params = ['user_id' => $_SESSION['user_id']];
+
+if ($search) {
+    $query .= " AND (title LIKE :search OR description LIKE :search)";
+    $params['search'] = "%$search%";
+}
+
+$stmt = $pdo->prepare($query);
+$stmt->execute($params);
+$tasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+echo json_encode($tasks);
+?>
+```
+
+11. Implementirati `search.js`:
+
+```javascript
+document.addEventListener('DOMContentLoaded', () => {
+    const searchForm = document.getElementById('search-form');
+    const searchInput = document.getElementById('search-input');
+    const table = document.querySelector('table');
+
+    searchForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const query = searchInput.value;
+
+        fetch(`search.php?search=${encodeURIComponent(query)}`)
+            .then(response => response.json())
+            .then(data => {
+                let html = '<tr><th>Naslov</th><th>Opis</th><th>Status</th><th>Akcija</th></tr>';
+                data.forEach(task => {
+                    html += `<tr>
+                        <td>${task.title}</td>
+                        <td>${task.description}</td>
+                        <td>${task.status}</td>
+                        <td>
+                            <a href="edit.php?id=${task.id}">Izmeni</a>
+                            <a href="delete.php?id=${task.id}" onclick="return confirm('Da li ste sigurni da želite da obrišete ovaj zadatak?')">Obriši</a>
+                        </td>
+                    </tr>`;
+                });
+                table.innerHTML = html;
+            });
+    });
+});
+```
+
+ Korak 3: Pokretanje Aplikacije
+
+1. Postave se datoteke na  web server: Premestiti sve datoteke u direktorijum  web servera (npr. `htdocs` za XAMPP ili `www` za WAMP).
+
+2. Testirati aplikaciju:
+   - Otvorite vaš web pretraživač i idite na `http://localhost/task_manager/login.php`.
+   - Registrujte novog korisnika, prijavite se, i testirajte dodavanje, uređivanje, pretragu i brisanje zadataka.
+
+Ovo je osnovna implementacija.
